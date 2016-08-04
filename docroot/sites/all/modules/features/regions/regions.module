@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Regions feature.
+ */
+
+include_once 'regions.features.inc';

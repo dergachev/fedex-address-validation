@@ -1,0 +1,16 @@
+name = Regions
+core = 7.x
+package = Features
+dependencies[] = features
+dependencies[] = strongarm
+dependencies[] = taxonomy
+dependencies[] = views
+dependencies[] = views_tree
+features[ctools][] = strongarm:strongarm:1
+features[ctools][] = views:views_default:3.0
+features[features_api][] = api:2
+features[taxonomy][] = regions
+features[variable][] = site_frontpage
+features[views_view][] = terms
+features_exclude[dependencies][ctools] = ctools
+project path = sites/all/modules/features
