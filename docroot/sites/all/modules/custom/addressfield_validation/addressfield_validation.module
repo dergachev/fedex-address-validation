@@ -1,0 +1,79 @@
+<?php
+
+/**
+ * @file
+ * Provides addressfield validation API.
+ */
+
+/**
+ * Implements hook_menu()
+ */
+function addressfield_validation_menu() {
+
+  $output['admin/config/people/addressfield-validation'] = array(
+    'title' => 'Address validation',
+    'description' => 'Address field configuration method and settings.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('addressfield_validation_settings_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'addressfield_validation.admin.inc',
+  );
+  $output['admin/config/people/addressfield-validation/general'] = array(
+    'title' => 'General',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+
+  return $output;
+
+}
+
+/**
+ * Implements hook_ctools_plugin_directory().
+ */
+function addressfield_validation_ctools_plugin_directory($module, $plugin) {
+  if ($module == 'addressfield') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+/**
+ * Validate form elements as per global configuration.
+ */
+function addressfield_validation_element_validate(&$element, &$form_state, $form) {
+  // Check 'clicked_button' to make sure this was a button click
+  // and not a form regeneration due to selecting a different country.
+  if ($form_state['clicked_button']) {
+    // Determine and validate provider
+    $provider_id = variable_get('addressfield_validation_provider', FALSE);
+    $provider = addressfield_validation_get_providers($provider_id);
+    if ($provider && isset ($provider['validate callback']) && is_callable($provider['validate callback'])) {
+      $provider['validate callback']($element, $form_state, $form);
+    }
+  }
+}
+
+/**
+ * Returns a list of address validation providers.
+ * @param string $provider_id [optional] If set, returns a particular provider
+ * on success or FALSE on failure. Paramter is ignored if NULL (default).
+ * @todo Implement hook_addressfield_validation_providers().
+ * @return array
+ */
+function addressfield_validation_get_providers($provider_id = NULL) {
+
+  $provider_coll = array(
+    'fedex' => array(
+      'title' => 'FedEx Address Validation Service',
+      'validate callback' => 'addressfield_validation_fedex_element_validate',
+    ),
+  );
+
+  if (is_null($provider_id)) {
+    return $provider_coll;
+  }
+
+  return isset($provider_coll[$provider_id])
+    ? $provider_coll[$provider_id] : FALSE;
+
+}
