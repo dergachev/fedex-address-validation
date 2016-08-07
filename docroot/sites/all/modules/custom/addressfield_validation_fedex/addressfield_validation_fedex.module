@@ -1,0 +1,291 @@
+<?php
+
+/**
+ * @file
+ * Address field validation using FedEx Address Validation Service.
+ */
+
+/**
+ * Implements hook_menu()
+ */
+function addressfield_validation_fedex_menu() {
+
+  $output['admin/config/people/addressfield-validation/fedex'] = array(
+    'title' => 'FedEx AVS',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('addressfield_validation_fedex_settings_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'addressfield_validation_fedex.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  return $output;
+
+}
+
+/**
+ * Form element validation callback.
+ */
+function addressfield_validation_fedex_element_validate(&$element, &$form_state, $form) {
+  // Get the value.
+  $value = drupal_array_get_nested_value($form_state['values'], $element['#parents']);
+
+  // Skip validation if any of the required values are empty.
+  $field_map = array(
+    'StreetLines' => array('street_block', 'thoroughfare'),
+    'City' => array('locality_block', 'locality'),
+    'StateOrProvinceCode' => array('locality_block', 'administrative_area'),
+    'PostalCode' => array('locality_block', 'postal_code'),
+    'CountryCode' => array('country'),
+  );
+  foreach ($field_map as $drupal_fields) {
+    $drupal_field = end($drupal_fields);
+    if (empty($value[$drupal_field])) {
+      return;
+    }
+  }
+  
+  // Validate the address with FedEx.
+  $addresses = array($value);
+  $response = _addressfield_validation_fedex_validate($addresses);
+
+  // Prepare error message format
+  $message_body = 'Address could not be validated with FedEx. Error(s): @error';
+
+  // Display direct errors
+  if (isset ($response->Error)) {
+
+    $message_vars = array('@error' => $response->Error);
+
+    form_error($element, t($message_body, $message_vars));
+    watchdog('addressfield_validation_fedex', $message_body, $message_vars, WATCHDOG_ERROR);
+
+  }
+  
+  // Display errors messages
+  if ($response->AddressResults->Errors) {
+
+    // Translate error messages
+    foreach ($response->AddressResults->Errors as &$error) {
+      $error = t($error);
+      unset($error);
+    }
+
+    $message_vars = array('@error' => implode(' ', $response->AddressResults->Errors));
+    form_error($element, t($message_body, $message_vars));
+
+  }
+
+}
+
+/**
+ * Returns settings for a given environment.
+ * @param string $environment [optional] Defaults to the environment set
+ * in the site settings or "test" if not set.
+ * @return array Settings array
+ */
+function _addressfield_validation_fedex_get_settings($environment = NULL) {
+
+  // Determine environment
+  $environment = is_null($environment)
+    ? variable_get('addressfield_validation_fedex_environment', 'test') : $environment;
+
+  $output = array();
+
+  $param_coll = array('key', 'account', 'password', 'meter', 'street_accuracy', 'directional_accuracy');
+  foreach ($param_coll as $param) {
+    $output[$param] = variable_get('addressfield_validation_fedex_' . $environment . '_' . $param);
+  }
+
+  return $output;
+
+}
+
+/**
+ * Validate addresses with FedEx Address Validation Service.
+ *
+ * This was copied and modified from http://drupal.org/project/fedex_address_validation.
+ * 
+ * @param $address Object containing address data as per addressfield 
+ * module specifications.
+ * @param $options Associative array of options.
+ *
+ * @return array|FALSE Associative array mirroring contents of SOAP object returned
+ * from server; or FALSE if one of the credentials is missing.
+ */
+function _addressfield_validation_fedex_validate($addresses, $options = array()) {
+
+  // Get the default options.
+  $environment = variable_get('addressfield_validation_fedex_environment', 'test');
+  $options += _addressfield_validation_fedex_get_settings($environment);
+
+  // Return if not installed properly.
+  if (!class_exists('SoapClient')) {
+    trigger_error(t('SoapClient not installed.'), E_USER_ERROR);
+    return;
+  }
+
+  // Validate required settings
+  foreach (array('key', 'password', 'account', 'meter') as $required) {
+    if (empty($options[$required])) {
+      trigger_error(t('FedEx Address Validation not configured properly.'), E_USER_ERROR);
+      return FALSE;
+    }
+  }
+
+  // Set address validation Request v2.0.0 in the request.
+  $request['Version'] = array(
+    'ServiceId' => 'aval',
+    'Major' => '4',
+    'Intermediate' => '0',
+    'Minor' => '0',
+  );
+
+  // Set the FedEx user key and password in the request.
+  $request['WebAuthenticationDetail'] = array(
+    'UserCredential' => array(
+      'Key' => $options['key'],
+      'Password' => $options['password'],
+    )
+  );
+
+  // Set FedEx account and meter number in the request.
+  $request['ClientDetail'] = array(
+    'AccountNumber' => $options['account'],
+    'MeterNumber' => $options['meter'],
+  );
+
+  // Set the timestamp in the request.
+  $request['RequestTimestamp'] = date('c', REQUEST_TIME);
+
+  // Set the transaction id.
+  //$request['TransactionDetail']['CustomerTransactionId'] = $options['id'];
+
+  // Set address accuracy settings in the request.
+  $request['AddressValidationOptions'] = array(
+    'VerifyAddresses' => 1,
+    'CheckResidentialStatus' => 1,
+    'MaximumNumberOfMatches' => 5,
+    'StreetAccuracy' => $options['street_accuracy'],
+    'DirectionalAccuracy' => $options['directional_accuracy'],
+    'CompanyNameAccuracy' => 'LOOSE',
+    'ConvertToUpperCase' => 0,
+    'RecognizeAlternateCityNames' => 1,
+    'ReturnParsedElements' => 1,
+  );
+
+  // Set the address in the request.
+  foreach ($addresses as $address_key => $address) {
+    $request['AddressesToValidate'][] = array(
+      'AddressId' => $address_key,
+      'Address' => array(
+        'StreetLines' => array($address['thoroughfare'], $address['premise']),
+        'City' => $address['locality'],
+        'StateOrProvinceCode' => $address['administrative_area'],
+        'PostalCode' => $address['postal_code'],
+        'CountryCode' => $address['country'],
+      ),
+    );
+  }
+
+  // Determine WSDL path
+  $wsdl_path = DRUPAL_ROOT . '/' . drupal_get_path('module', 'addressfield_validation_fedex') 
+    . '/AddressValidationService_v4-' . $environment . '.wsdl';
+
+  // Set up and execute request to FedEx Server.
+  // Enable trace for logging purposes.
+  $client = new SoapClient($wsdl_path, array('trace' => 1));
+
+  // Send the SOAP request to the FedEx server
+  try {
+    $response = $client->addressValidation($request);
+  }
+  catch (SoapFault $exception) {
+    $response->Error = 'Exception: ' . $exception->getMessage();
+  }
+
+  // See if the request succeeded
+  if (isset ($response->HighestSeverity) && 'SUCCESS' !== $response->HighestSeverity) {
+    $response->Error = 'Exception: Service unavailable. Please try again after 10 seconds.';
+  }
+
+  // Parse AddressResults to detect address errors
+  if (isset ($response->AddressResults)) {
+
+    // Force results array
+    $result_coll = is_array($response->AddressResults)
+      ? $response->AddressResults : array($response->AddressResults);
+
+    foreach ($result_coll as $result_key => &$result) {
+      $address = $addresses[$result_key];
+      _addressfield_validation_fedex_interpret_address_result($address, $result);
+      unset($result);
+    }
+
+    // Attach the results back to the response as they were
+    $response->AddressResults = is_array($response->AddressResults)
+      ? $result_coll : reset($result_coll);
+
+  }
+
+  // Return the SOAP response.
+  return $response;
+
+}
+
+/**
+ * Interprets an AddressResult array.
+ */
+function _addressfield_validation_fedex_interpret_address_result(array $address, StdClass &$result) {
+
+  $result->Errors = array();
+
+  // Address could not be standardized
+  if ('STANDARDIZED' !== $result->State) {
+    $result->Errors[] = 'Address incomplete or invalid.';
+  }
+
+  // Ensure required address parts
+  if (!isset ($result->ParsedAddressPartsDetail->ParsedStreetLine->HouseNumber)) {
+    $result->Errors[] = 'Invalid or missing premise number.';
+  }
+
+  // Interpret attributes
+  foreach ($result->Attributes as $attribute) {
+    $param_key = $attribute->Name;
+    $param_val = (bool) ('true' === $attribute->Value);
+    switch ($param_key) {
+      case 'CountrySupported':
+        if (!$param_val) {
+          $result->Errors[] = 'Country not supported.';
+        }
+        break;
+      case 'SuiteRequiredButMissing':
+        if ($param_val) {
+          $result->Errors[] = 'Suite required but missing.';
+        }
+        break;
+      case 'InvalidSuiteNumber':
+        if ($param_val) {
+          $result->Errors[] = 'Invalid suite number.';
+        }
+        break;
+      case 'MultipleMatches':
+        if ($param_val) {
+          $result->Errors[] = 'Address is ambiguous.';
+        }
+        break;
+      case 'PostalValidated':
+        if (!$param_val) {
+          $result->Errors[] = 'Missing or invalid postal code.';
+        }
+        break;
+      case 'MissingOrAmbiguousDirectional':
+        if ($param_val) {
+          $result->Errors[] = 'Missing or ambiguous directional.';
+        }
+        break;
+    }
+  }
+
+}
