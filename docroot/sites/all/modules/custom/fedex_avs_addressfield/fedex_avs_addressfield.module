@@ -26,6 +26,41 @@ function fedex_avs_addressfield_form_field_ui_field_edit_form_alter(&$form, $for
 			? $form['#instance']['fedex_avs_validate'] : 0,
 	);
 
+	// Allow selection of specific forms
+	// @todo Display form_id checkboxes instead of textarea
+	$form['instance']['fedex_avs_forms_rule'] = array(
+		'#type' => 'radios',
+		'#title' => t('Validate specific forms'),
+		'#options' => array(
+			'w' => t('Validate only the specified forms'),
+			'b' => t('Validate all but the specified forms'),
+		),
+		'#default_value' => isset($form['#instance']['fedex_avs_forms_rule'])
+			? $form['#instance']['fedex_avs_forms_rule'] : 'w',
+		'#states' => array(
+			'visible' => array(
+				'#edit-instance-fedex-avs-validate' => array('checked' => TRUE),
+			),
+			'invisible' => array(
+				'#edit-instance-fedex-avs-validate' => array('unchecked' => TRUE),
+			),
+		),
+	);
+	$form['instance']['fedex_avs_forms_list'] = array(
+		'#type' => 'textarea',
+		'#description' => t('Enter one Form ID per line. Example: user_register_form'),
+		'#default_value' => isset($form['#instance']['fedex_avs_forms_list'])
+			? $form['#instance']['fedex_avs_forms_list'] : '',
+		'#states' => array(
+			'visible' => array(
+				'#edit-instance-fedex-avs-validate' => array('checked' => TRUE),
+			),
+			'invisible' => array(
+				'#edit-instance-fedex-avs-validate' => array('unchecked' => TRUE),
+			),
+		),
+	);
+
 }
 
 /**
@@ -34,10 +69,32 @@ function fedex_avs_addressfield_form_field_ui_field_edit_form_alter(&$form, $for
  */
 function fedex_avs_addressfield_field_widget_addressfield_standard_form_alter(&$element, &$form_state, $context) {
 
-	// To validate... Or to not to validate...
+	// To validate... Or to not to validate... That is the question.
 	$instance = $context['instance'];
 	if (!isset ($instance['fedex_avs_validate']) || !$instance['fedex_avs_validate']) {
 		return;
+	}
+
+	// Validate specific forms
+	if (isset ($instance['fedex_avs_forms_list']) && !empty ($instance['fedex_avs_forms_list'])) {
+
+		$forms_list = preg_split('/[\\r]?[\\n]/', $instance['fedex_avs_forms_list']);
+		$forms_rule = $instance['fedex_avs_forms_rule'];
+		$form_id = $form_state['build_info']['form_id'];
+
+		// Blacklist
+		if ('b' === $forms_rule) {
+			if (in_array($form_id, $forms_list)) {
+				return;
+			}
+		}
+		// Whitelist
+		else {
+			if (!in_array($form_id, $forms_list)) {
+				return;
+			}
+		}
+
 	}
 
 	// Attach bypass checkbox
