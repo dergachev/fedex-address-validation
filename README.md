@@ -2,6 +2,29 @@
 
 Demo Drupal Commerce site that utilizes the FedEx Address Validation Web service.
 
+INSTALLATION
+
+- Download the files and do a standard Drupal installation.
+- Setup a Drupal Commerce environment with the following steps:
+  + Install features_commerce module
+  + Install and configure the fedex_avs module following the it's readme file.
+  + Install and configure the fedex_avs_addressfield module following the it's
+	  readme file.
+
+TESTING
+
+- Configure the shipping address field in customer profile and enable
+  FedEx Address Validation (at least for the commerce_checkout_form_checkout form).
+- Create some products from the page:
+  Store > Products > Add a Product
+- Create display pages for test products from the page:
+  Content > Add content > Offering
+- Add a product to your cart and attempt to check out. During checkout,
+  if you enter a wrong shipping address, you will be presented with validation
+  error messages provided by the FedEx AVS. You can then choose to correct 
+  your address as hinted by the error messages or choose to ignore validation
+  and proceed.
+
 DEMO NOTES
 
  - URL: http://evowebfedexaddvalvuiwpzfutf.devcloud.acquia-sites.com/
