@@ -1,0 +1,97 @@
+<?php
+/**
+ * @file
+ * Tests for FedEx Address Field Validation.
+ */
+
+/**
+ * Tests Address Validation using FedEx Address Validation Service.
+ */
+class FedexAvsTestCase extends DrupalUnitTestCase {
+
+  const TEST_GROUP = 'FedEx AVS';
+
+  public static function getInfo() {
+    return array(
+      'name' => self::TEST_GROUP,
+      'description' => 'Tests FedEx Address Validation Service.',
+      'group' => self::TEST_GROUP,
+    );
+  }
+
+  /**
+   * Test valid address
+   */
+  function testValidAddress() {
+
+    $address = array(
+      'name_line' => 'Jerry Radwick',
+      'organisation_name' => 'Evolving Web',
+      'thoroughfare' => '300 Saint-Sacrement, Suite 114',
+      'premise' => '',
+      'street_block' => '',
+      'locality_block' => '',
+      'locality' => 'Montreal',
+      'administrative_area' => 'QC',
+      'postal_code' => 'H2Y 1X4',
+      'country' => 'CA',
+    );
+    $response = fedex_avs_validate_addresses(array($address));
+    $test_value = $response && (0 === sizeof($response->AddressResults->Errors));
+    $this->assertTrue($test_value, 'Address with valid data treated as correct.', self::TEST_GROUP);
+
+  }
+
+  /**
+   * Test address without postal code and city
+   */
+  function testAddressWithIncorrectPostalCode() {
+
+    $test_group = '';
+
+    // Test correct address with all elements
+    $address = array(
+      'name_line' => 'Jerry Radwick',
+      'organisation_name' => 'Evolving Web',
+      'thoroughfare' => '300 Saint-Sacrement, Suite 114',
+      'premise' => '',
+      'street_block' => '',
+      'locality_block' => '',
+      'locality' => '',
+      'administrative_area' => 'QC',
+      'postal_code' => '',
+      'country' => 'CA',
+    );
+    $response = fedex_avs_validate_addresses(array($address));
+    $test_value = $response && in_array('Address incomplete or invalid.', $response->AddressResults->Errors);
+    $this->assertTrue($test_value, 'Address without postal code and city treated as incorrect.', self::TEST_GROUP);
+
+  }
+
+  /**
+   * Test address with incorrect street name
+   */
+  function testAddressWithIncorrectStreetName() {
+
+    $test_group = '';
+
+    // Test correct address with all elements
+    $address = array(
+      'name_line' => 'Jerry Radwick',
+      'organisation_name' => 'Evolving Web',
+      'thoroughfare' => '300 Saint-Barnard, Suite 114',
+      'premise' => '',
+      'street_block' => '',
+      'locality_block' => '',
+      'locality' => 'Montreal',
+      'administrative_area' => 'QC',
+      'postal_code' => 'H2Y 1X4',
+      'country' => 'CA',
+    );
+    $response = fedex_avs_validate_addresses(array($address));
+    $test_value = $response && in_array('Address incomplete or invalid.', $response->AddressResults->Errors);
+    $this->assertTrue($test_value, 'Address without postal code and city treated as incorrect.', self::TEST_GROUP);
+    
+  }
+
+}
