@@ -1,0 +1,9 @@
+; Package info
+name = FedEx AVS Address Field Bridge
+description = Provides FedEx AVS integration with address fields.
+core = 7.x
+version = 0.5
+
+; Dependencies
+dependencies[] = addressfield
+dependencies[] = fedex_avs

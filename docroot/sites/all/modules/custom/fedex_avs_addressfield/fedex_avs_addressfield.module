@@ -1,0 +1,142 @@
+<?php
+
+/**
+ * @file
+ * Bridges the FedEx AVS API module with Address Field module.
+ */
+
+/**
+ * Display custom configuration fields in field settings form.
+ * Implements hook_form_FORM_ID_alter().
+ */
+function fedex_avs_addressfield_form_field_ui_field_edit_form_alter(&$form, $form_state) {
+
+	// Work only on addressfield fields
+	$field = $form['#field'];
+	if ('addressfield' !== $field['type']) {
+		return;
+	}
+
+	// Define custom settings
+	$form['instance']['fedex_avs_validate'] = array (
+		'#type' => 'checkbox',
+		'#title' => t('FedEx Address Validation'),
+		'#description' => t('Validate the field with the FedEx Address Validation Service.'),
+		'#default_value' => isset($form['#instance']['fedex_avs_validate'])
+			? $form['#instance']['fedex_avs_validate'] : 0,
+	);
+
+}
+
+/**
+ * Inject validation callbacks for elements if validation is enabled.
+ * Implements hook_field_widget_WIDGET_TYPE_form_alter();
+ */
+function fedex_avs_addressfield_field_widget_addressfield_standard_form_alter(&$element, &$form_state, $context) {
+
+	// To validate... Or to not to validate...
+	$instance = $context['instance'];
+	if (!isset ($instance['fedex_avs_validate']) || !$instance['fedex_avs_validate']) {
+		return;
+	}
+
+	// Attach bypass checkbox
+	$element['fedex_avs_bypass'] = array (
+  	'#type' => 'checkbox',
+    '#title' => t('Ignore address validation'),
+    '#weight' => -999,
+  );
+
+  // Attach validate callback
+	if (!isset ($element['#element_validate'])) {
+		$element['#element_validate'] = array ();
+	}
+	$element['#element_validate'][] = 'fedex_avs_addressfield_element_validate';
+
+	// Attach pre-render callback
+	if (!isset ($element['#pre_render'])) {
+		$element['#pre_render'] = array ();
+	}
+	$element['#pre_render'][] = '_fedex_avs_addressfield_element_prerender';
+
+}
+
+/**
+ * Form element validation callback.
+ */
+function fedex_avs_addressfield_element_validate(&$element, &$form_state, $form) {
+
+  // Get the value
+  $value = drupal_array_get_nested_value($form_state['values'], $element['#parents']);
+
+  // Skip validation if any of the required values are empty.
+  $field_map = array(
+    'StreetLines' => array('street_block', 'thoroughfare'),
+    'City' => array('locality_block', 'locality'),
+    'StateOrProvinceCode' => array('locality_block', 'administrative_area'),
+    'PostalCode' => array('locality_block', 'postal_code'),
+    'CountryCode' => array('country'),
+  );
+  foreach ($field_map as $drupal_fields) {
+    $drupal_field = end($drupal_fields);
+    if (empty($value[$drupal_field])) {
+      return;
+    }
+  }
+
+  // Mark bypass checkbox as visible
+  $invalid_elements = &drupal_static('fedex_avs_invalid_elements', array ());
+  $invalid_elements[$element['#id']] = TRUE;
+  
+  if (!$value['fedex_avs_bypass']) {
+
+	  // Validate the address with FedEx.
+	  $addresses = array($value);
+	  $response = fedex_avs_validate_addresses($addresses);
+
+	  // Display errors, if any
+	  if ($response && isset ($response->AddressResults) && sizeof($response->AddressResults->Errors) > 0) {
+
+	    // Translate error messages
+	    foreach ($response->AddressResults->Errors as &$error) {
+	      $error = t($error);
+	      unset($error);
+	    }
+
+	    // Display error message
+	    $message_body = 'FedEx services pointed out the following errors in your address: !error Please correct your address otherwise, mark the checkbox %checkbox-label below and submit your data again.';
+	    $message_vars = array(
+	    	'!error' => theme('item_list', array ('items' => $response->AddressResults->Errors)),
+	    	'%checkbox-label' => $element['fedex_avs_bypass']['#title'],
+	    );
+	    form_error($element, t($message_body, $message_vars));
+
+	  }
+	  // If there are no errors, hide the bypass checkbox
+	  else {
+	  	$invalid_elements[$element['#id']] = FALSE;
+	  }
+
+	}
+
+}
+
+/**
+ * Since FAPI does not save changes made to form element structure during
+ * the widget validation process, this pre-render callback, along with flags
+ * stored in drupal_static() identifies valid/invalid address fields and
+ * hides the "bypass validation" checkbox for valid fields.
+ * 
+ * @todo Is there a better way to do this?
+ *
+ * Implements Form element pre-render callback.
+ */
+function _fedex_avs_addressfield_element_prerender($element) {
+
+	$invalid_elements = &drupal_static('fedex_avs_invalid_elements', array ());
+	if (!isset ($invalid_elements[$element['#id']])) {
+		hide($element['fedex_avs_bypass']);
+	}
+	return $element;
+
+}
