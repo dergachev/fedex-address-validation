@@ -170,7 +170,7 @@ function fedex_avs_addressfield_element_validate(&$element, &$form_state, $form)
     }
     // If there are no errors, hide the bypass checkbox
     else {
-      $invalid_elements[$element['#id']] = FALSE;
+      unset ($invalid_elements[$element['#id']]);
     }
 
   }
