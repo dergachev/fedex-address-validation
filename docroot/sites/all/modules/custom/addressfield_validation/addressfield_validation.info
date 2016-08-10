@@ -1,7 +1,0 @@
-; Package info
-name = Address Field Validation
-description = Provides an API for address validation implementations.
-version = 0.5
-core = 7.x
-configure = admin/config/people/addressfield-validation
-
