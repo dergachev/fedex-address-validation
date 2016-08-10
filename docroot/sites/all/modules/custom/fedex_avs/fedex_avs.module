@@ -6,6 +6,12 @@
  */
 
 /**
+ * Number of seconds after which a remote call should be timed-out.
+ * @todo Do we have a setting for this in the back end?
+ */
+define('FEDEX_AVS_REQUEST_TIMEOUT', 5);
+
+/**
  * Implements hook_menu()
  */
 function fedex_avs_menu() {
@@ -134,9 +140,12 @@ function fedex_avs_validate_addresses($addresses, $options = array()) {
   $wsdl_path = DRUPAL_ROOT . '/' . drupal_get_path('module', 'fedex_avs') 
     . '/wsdl/AddressValidationService_v4-' . $environment . '.wsdl';
 
+  // Override connection timeout
+  $old_timeout = ini_set('default_socket_timeout', 5);
+
   // Set up and execute request to FedEx Server.
-  // Enable trace for logging purposes.
   $client = new SoapClient($wsdl_path, array('trace' => 1));
+  $request_status = TRUE;
 
   try {
     // Send the SOAP request to the FedEx server
@@ -144,6 +153,16 @@ function fedex_avs_validate_addresses($addresses, $options = array()) {
   }
   catch (SoapFault $exception) {
     watchdog('service_avs', 'Exception: ' . $exception->getMessage(), NULL, WATCHDOG_NOTICE);
+    $request_status = FALSE;
+  }
+
+  // Restore old timeout configuration
+  if (FALSE !== $old_timeout) {
+    ini_set('default_socket_timeout', $old_timeout);
+  }
+
+  // Did the request faile? Then abort!
+  if (!$request_status) {
     return FALSE;
   }
 
