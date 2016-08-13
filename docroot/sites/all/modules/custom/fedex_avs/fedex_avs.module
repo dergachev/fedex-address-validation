@@ -209,7 +209,7 @@ function fedex_avs_validate_addresses($addresses, $options = array()) {
 
   }
   else {
-    watchdog('service_avs', "Required parameter 'AddressResults' not found.", NULL, WATCHDOG_NOTICE);
+    watchdog('service_avs', "Expected response parameter 'AddressResults' not found.", NULL, WATCHDOG_NOTICE);
     return FALSE;
   }
 
