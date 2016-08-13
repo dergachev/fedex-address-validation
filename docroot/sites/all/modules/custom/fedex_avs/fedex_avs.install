@@ -1,0 +1,17 @@
+<?php
+
+/**
+ * @file
+ * Install and uninstall callbacks.
+ */
+
+/**
+ * Implemements hook_uninstall()
+ */
+function fedex_avs_uninstall() {
+  variable_del('fedex_avs_environment');
+  foreach (array ('key', 'account', 'meter', 'password', 'street_accuracy', 'directional_accuracy') as $var) {
+    variable_del('fedex_avs_test_' . $var);
+    variable_del('fedex_avs_live_' . $var);
+  }
+}

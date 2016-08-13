@@ -1,0 +1,8 @@
+; Package info
+name = Fedex AVS
+description = FedEx Address Validation Service API.
+core = 7.x
+configure = admin/config/services/fedex-avs
+
+; Files
+files[] = fedex_avs.test

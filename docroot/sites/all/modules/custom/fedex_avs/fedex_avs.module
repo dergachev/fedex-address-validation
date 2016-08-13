@@ -1,0 +1,278 @@
+<?php
+
+/**
+ * @file
+ * Address field validation using FedEx Address Validation Service.
+ */
+
+/**
+ * Number of seconds after which a remote call should be timed-out.
+ *
+ * @todo Do we have a setting for this in the back end?
+ */
+define('FEDEX_AVS_REQUEST_TIMEOUT', 5);
+
+/**
+ * Implements hook_menu().
+ */
+function fedex_avs_menu() {
+
+  $output['admin/config/services/fedex-avs'] = array(
+    'title' => 'FedEx AVS',
+    'description' => 'Settings for the FedEx Address Validation Service',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('fedex_avs_settings_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'fedex_avs.admin.inc',
+  );
+
+  return $output;
+
+}
+
+/**
+ * Returns settings for a given environment.
+ *
+ * @param string $environment
+ *   [optional] Defaults to the environment set in the site settings or
+ *   "test" if not set.
+ *
+ * @return array
+ *   Settings array
+ */
+function _fedex_avs_get_settings($environment = NULL) {
+
+  // Determine environment.
+  $environment = is_null($environment)
+    ? variable_get('fedex_avs_environment', 'test') : $environment;
+
+  $output = array();
+
+  $param_coll = array(
+    'key', 'account', 'password', 'meter', 'street_accuracy',
+    'directional_accuracy',
+  );
+  foreach ($param_coll as $param) {
+    $output[$param] = variable_get('fedex_avs_' . $environment . '_' . $param);
+  }
+
+  return $output;
+
+}
+
+/**
+ * Validate addresses with FedEx Address Validation Service.
+ *
+ * This was copied and modified from
+ * http://drupal.org/project/fedex_address_validation.
+ *
+ * @param array $addresses
+ *   Array of one or more arrays containing address data as
+ *   per addressfield module specifications.
+ * @param array $options
+ *   Associative array of options.
+ *
+ * @return array|bool
+ *   Associative array mirroring contents of SOAP object returned
+ *   from server; or FALSE if validation could not be performed.
+ */
+function fedex_avs_validate_addresses($addresses, $options = array()) {
+
+  // Get the default options.
+  $environment = variable_get('fedex_avs_environment', 'test');
+  $options += _fedex_avs_get_settings($environment);
+
+  // Return if not installed properly.
+  if (!class_exists('SoapClient')) {
+    watchdog('service_avs', 'Exception: SOAP Client not installed.', NULL, WATCHDOG_ALERT);
+    return FALSE;
+  }
+
+  // Validate required settings.
+  foreach (array('key', 'password', 'account', 'meter') as $required) {
+    if (empty($options[$required])) {
+      watchdog('service_avs', 'Exception: Module not configured properly.', NULL, WATCHDOG_ALERT);
+      return FALSE;
+    }
+  }
+
+  // Set address validation Request v4.0.0 in the request.
+  $request['Version'] = array(
+    'ServiceId' => 'aval',
+    'Major' => '4',
+    'Intermediate' => '0',
+    'Minor' => '0',
+  );
+
+  // Set the FedEx user key and password in the request.
+  $request['WebAuthenticationDetail'] = array(
+    'UserCredential' => array(
+      'Key' => $options['key'],
+      'Password' => $options['password'],
+    ),
+  );
+
+  // Set FedEx account and meter number in the request.
+  $request['ClientDetail'] = array(
+    'AccountNumber' => $options['account'],
+    'MeterNumber' => $options['meter'],
+  );
+
+  // Set the timestamp in the request.
+  $request['RequestTimestamp'] = date('c', REQUEST_TIME);
+
+  // Set address accuracy settings in the request.
+  $request['AddressValidationOptions'] = array(
+    'VerifyAddresses' => 1,
+    'CheckResidentialStatus' => 1,
+    'MaximumNumberOfMatches' => 5,
+    'StreetAccuracy' => $options['street_accuracy'],
+    'DirectionalAccuracy' => $options['directional_accuracy'],
+    'CompanyNameAccuracy' => 'LOOSE',
+    'ConvertToUpperCase' => 0,
+    'RecognizeAlternateCityNames' => 1,
+    'ReturnParsedElements' => 1,
+  );
+
+  // Set the address in the request.
+  foreach ($addresses as $address_key => $address) {
+    $request['AddressesToValidate'][] = array(
+      'AddressId' => $address_key,
+      'Address' => array(
+        'StreetLines' => array($address['thoroughfare'], $address['premise']),
+        'City' => $address['locality'],
+        'StateOrProvinceCode' => $address['administrative_area'],
+        'PostalCode' => $address['postal_code'],
+        'CountryCode' => $address['country'],
+      ),
+    );
+  }
+
+  // Determine WSDL path.
+  $wsdl_path = DRUPAL_ROOT . '/' . drupal_get_path('module', 'fedex_avs')
+    . '/wsdl/AddressValidationService_v4-' . $environment . '.wsdl';
+
+  // Override connection timeout.
+  $old_timeout = ini_set('default_socket_timeout', 5);
+
+  // Set up and execute request to FedEx Server.
+  $client = new SoapClient($wsdl_path, array('trace' => 1));
+  $request_status = TRUE;
+
+  try {
+    // Send the SOAP request to the FedEx server.
+    $response = $client->addressValidation($request);
+  }
+  catch (SoapFault $exception) {
+    watchdog('service_avs', 'SOAP Exception: @error', array(
+      '@error' => $exception->getMessage(),
+    ), WATCHDOG_NOTICE);
+    $request_status = FALSE;
+  }
+
+  // Restore old timeout configuration.
+  if (FALSE !== $old_timeout) {
+    ini_set('default_socket_timeout', $old_timeout);
+  }
+
+  // Did the request faile? Then abort!
+  if (!$request_status) {
+    return FALSE;
+  }
+
+  // Check if FedEx response is as expected.
+  if (!isset($response->HighestSeverity)) {
+    watchdog('service_avs', 'Unrecognized response format from remote server.', NULL, WATCHDOG_NOTICE);
+    return FALSE;
+  }
+  elseif ('SUCCESS' !== $response->HighestSeverity) {
+    watchdog('service_avs', 'Service unavailable.', NULL, WATCHDOG_NOTICE);
+    return FALSE;
+  }
+
+  // Parse AddressResults to detect address errors.
+  if (isset($response->AddressResults)) {
+
+    // Force results array.
+    $result_coll = is_array($response->AddressResults)
+      ? $response->AddressResults : array($response->AddressResults);
+
+    foreach ($result_coll as $result_key => &$result) {
+      $address = $addresses[$result_key];
+      _fedex_avs_interpret_address_result($address, $result);
+      unset($result);
+    }
+
+    // Attach the results back to the response as they were.
+    $response->AddressResults = is_array($response->AddressResults)
+      ? $result_coll : reset($result_coll);
+
+  }
+  else {
+    watchdog('service_avs', "Expected response parameter 'AddressResults' not found.", NULL, WATCHDOG_NOTICE);
+    return FALSE;
+  }
+
+  // Return the SOAP response.
+  return $response;
+
+}
+
+/**
+ * Interprets an AddressResult array.
+ */
+function _fedex_avs_interpret_address_result(array $address, StdClass &$result) {
+
+  $result->Errors = array();
+
+  // Address could not be standardized.
+  if ('STANDARDIZED' !== $result->State) {
+    $result->Errors[] = 'Address incomplete or invalid.';
+  }
+
+  // Interpret attributes.
+  foreach ($result->Attributes as $attribute) {
+    $param_key = $attribute->Name;
+    $param_val = (bool) ('true' === $attribute->Value);
+    switch ($param_key) {
+
+      case 'CountrySupported':
+        if (!$param_val) {
+          $result->Errors[] = 'Country not supported.';
+        }
+        break;
+
+      case 'SuiteRequiredButMissing':
+        if ($param_val) {
+          $result->Errors[] = 'Suite required but missing.';
+        }
+        break;
+
+      case 'InvalidSuiteNumber':
+        if ($param_val) {
+          $result->Errors[] = 'Invalid suite number.';
+        }
+        break;
+
+      case 'MultipleMatches':
+        if ($param_val) {
+          $result->Errors[] = 'Address is ambiguous.';
+        }
+        break;
+
+      case 'PostalValidated':
+        if (!$param_val) {
+          $result->Errors[] = 'Missing or invalid postal code.';
+        }
+        break;
+
+      case 'MissingOrAmbiguousDirectional':
+        if ($param_val) {
+          $result->Errors[] = 'Missing or ambiguous directional.';
+        }
+        break;
+
+    }
+  }
+
+}
