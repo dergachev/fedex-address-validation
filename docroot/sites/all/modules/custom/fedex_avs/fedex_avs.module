@@ -164,7 +164,7 @@ function fedex_avs_validate_addresses($addresses, $options = array()) {
     $response = $client->addressValidation($request);
   }
   catch (SoapFault $exception) {
-    watchdog('service_avs', 'Exception: @error', array(
+    watchdog('service_avs', 'SOAP Exception: @error', array(
       '@error' => $exception->getMessage(),
     ), WATCHDOG_NOTICE);
     $request_status = FALSE;
@@ -182,11 +182,11 @@ function fedex_avs_validate_addresses($addresses, $options = array()) {
 
   // Check if FedEx response is as expected.
   if (!isset($response->HighestSeverity)) {
-    watchdog('service_avs', 'Exception: Unrecognized response format.', NULL, WATCHDOG_NOTICE);
+    watchdog('service_avs', 'Unrecognized response format from remote server.', NULL, WATCHDOG_NOTICE);
     return FALSE;
   }
   elseif ('SUCCESS' !== $response->HighestSeverity) {
-    watchdog('service_avs', 'Exception: Service unavailable.', NULL, WATCHDOG_NOTICE);
+    watchdog('service_avs', 'Service unavailable.', NULL, WATCHDOG_NOTICE);
     return FALSE;
   }
 
@@ -207,6 +207,10 @@ function fedex_avs_validate_addresses($addresses, $options = array()) {
     $response->AddressResults = is_array($response->AddressResults)
       ? $result_coll : reset($result_coll);
 
+  }
+  else {
+    watchdog('service_avs', "Required parameter 'AddressResults' not found.", NULL, WATCHDOG_NOTICE);
+    return FALSE;
   }
 
   // Return the SOAP response.
