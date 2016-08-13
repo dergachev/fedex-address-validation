@@ -9,7 +9,7 @@
  * Form callback.
  */
 function fedex_avs_settings_form($form, &$form_state) {
-  
+
   $form['fedex_avs_environment'] = array(
     '#title' => t('Environment'),
     '#type' => 'radios',
@@ -32,7 +32,7 @@ function fedex_avs_settings_form($form, &$form_state) {
     '#collapsed' => TRUE,
   );
 
-  // Create same set of config fields for each environment
+  // Create same set of config fields for each environment.
   $field_coll = array(
     'key' => array(
       '#title' => t('Key'),
