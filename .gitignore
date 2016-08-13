@@ -2,5 +2,5 @@
 docroot/files
 docroot/sites/*/files
 docroot/sites/*/private
-docroot/sites/default/*
+docroot/sites/default
 acquia-files
