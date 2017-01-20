@@ -1,0 +1,10 @@
+name = "Regions import"
+description = "Import a list of regions into Drupal."
+core = 7.x
+
+files[] = includes/MigrateJSONTreeReader.inc
+files[] = includes/RegionImportAbstractMigration.inc
+files[] = includes/RegionImportTermMigration.inc
+
+dependencies[] = migrate
+dependencies[] = regions

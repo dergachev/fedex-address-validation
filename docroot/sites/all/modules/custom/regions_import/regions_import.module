@@ -1,0 +1,7 @@
+<?php
+
+/**
+ * @file
+ * This file has intentionally been left empty.
+ * regions_import.migrate.inc is imported at runtime, thanks to hook_hook_info()
+ */
